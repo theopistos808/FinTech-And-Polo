@@ -15,7 +15,6 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".vendor"))
 
 import fitz
-import qrcode
 from PIL import Image
 
 
@@ -24,7 +23,6 @@ DEFAULT_PDF = Path("/Users/jaycinasser/Downloads/Company One Pagers.pdf")
 DATA_DIR = ROOT / "data"
 ASSET_DIR = ROOT / "assets" / "companies"
 JPG_DIR = ASSET_DIR / "jpg"
-QR_DIR = ASSET_DIR / "qr"
 PDF_DIR = ASSET_DIR / "pdf"
 COMPANY_DIR = ROOT / "companies"
 
@@ -82,7 +80,11 @@ def unique_slug(base_slug: str, seen: set[str]) -> str:
 
 
 def reset_output_dirs() -> None:
-    for directory in [JPG_DIR, QR_DIR, PDF_DIR, COMPANY_DIR]:
+    legacy_qr_dir = ASSET_DIR / "qr"
+    if legacy_qr_dir.exists():
+        shutil.rmtree(legacy_qr_dir)
+
+    for directory in [JPG_DIR, PDF_DIR, COMPANY_DIR]:
         if directory.exists():
             shutil.rmtree(directory)
         directory.mkdir(parents=True, exist_ok=True)
@@ -102,14 +104,6 @@ def save_single_page_pdf(document: fitz.Document, page_index: int, destination: 
     single.close()
 
 
-def save_qr(url: str, destination: Path) -> None:
-    qr = qrcode.QRCode(border=2, box_size=8)
-    qr.add_data(url)
-    qr.make(fit=True)
-    image = qr.make_image(fill_color="black", back_color="white")
-    image.save(destination)
-
-
 def write_company_page(company: dict[str, Any]) -> None:
     company_path = COMPANY_DIR / company["slug"]
     company_path.mkdir(parents=True, exist_ok=True)
@@ -117,11 +111,8 @@ def write_company_page(company: dict[str, Any]) -> None:
     title = html.escape(company["title"])
     location = html.escape(company["location"])
     overview = html.escape(company["overview"])
-    url = html.escape(company["url"])
     image_path = html.escape(company["image_path"])
-    qr_path = html.escape(company["qr_path"])
     pdf_path = html.escape(company["pdf_path"])
-    page_label = html.escape(str(company["page_number"]))
 
     page_html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -146,14 +137,8 @@ def write_company_page(company: dict[str, Any]) -> None:
           <p class="detail-copy">{overview}</p>
           <div class="detail-actions">
             <a class="button button-dark" href="{pdf_path}" target="_blank" rel="noreferrer">Open PDF page</a>
-            <a class="button button-light" href="{url}" target="_blank" rel="noreferrer">Visit public URL</a>
           </div>
         </div>
-        <aside class="qr-panel">
-          <img src="{qr_path}" alt="QR code for {title}" />
-          <p>Scan to open this page</p>
-          <span>Page {page_label}</span>
-        </aside>
       </section>
       <section class="detail-image-wrap">
         <img class="detail-image" src="{image_path}" alt="{title} one pager" />
@@ -183,11 +168,9 @@ def build(pdf_path: Path, base_url: str) -> list[dict[str, Any]]:
         detail_url = f"{base_url}/companies/{slug}/"
 
         jpg_path = JPG_DIR / f"{slug}.jpg"
-        qr_path = QR_DIR / f"{slug}.png"
         pdf_output_path = PDF_DIR / f"{slug}.pdf"
 
         render_jpg(page, jpg_path)
-        save_qr(detail_url, qr_path)
         save_single_page_pdf(document, page_index, pdf_output_path)
 
         company = {
@@ -196,9 +179,8 @@ def build(pdf_path: Path, base_url: str) -> list[dict[str, Any]]:
             "location": location,
             "overview": overview,
             "page_number": page_index + 1,
-            "url": detail_url,
+            "page_url": detail_url,
             "image_path": f"/assets/companies/jpg/{slug}.jpg",
-            "qr_path": f"/assets/companies/qr/{slug}.png",
             "pdf_path": f"/assets/companies/pdf/{slug}.pdf",
         }
         companies.append(company)
@@ -217,7 +199,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--base-url",
         default="https://your-vercel-project.vercel.app",
-        help="Public site base URL for QR codes.",
+        help="Public site base URL for company detail pages.",
     )
     return parser.parse_args()
 
